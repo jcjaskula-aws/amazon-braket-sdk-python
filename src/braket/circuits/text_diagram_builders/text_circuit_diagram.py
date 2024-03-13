@@ -50,6 +50,23 @@ class TextCircuitDiagram(CircuitDiagram, ABC):
 
     @classmethod
     @abstractmethod
+    def _ctrl_modifier_symbol(cls) -> str:
+        """control modifier symbol"""
+
+    @classmethod
+    @abstractmethod
+    def _negctrl_modifier_symbol(cls) -> str:
+        """negative control modifier symbol"""
+
+    @classmethod
+    @abstractmethod
+    def _transform_ascii_symbols(
+        cls, instructions: list[Instruction | ResultType]
+    ) -> list[Instruction | ResultType]:
+        """Transform ascii symbols"""
+
+    @classmethod
+    @abstractmethod
     def _create_diagram_column(
         cls,
         circuit_qubits: QubitSet,
@@ -192,6 +209,8 @@ class TextCircuitDiagram(CircuitDiagram, ABC):
         Returns:
             str: A string diagram for the column set.
         """
+
+        items = cls._transform_ascii_symbols(items)
 
         # Group items to separate out overlapping multi-qubit items
         groupings = _group_items(circuit_qubits, items)

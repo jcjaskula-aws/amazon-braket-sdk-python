@@ -67,10 +67,42 @@ class UnicodeCircuitDiagram(TextCircuitDiagram):
         return 1
 
     @classmethod
+    def _ctrl_modifier_symbol(cls) -> str:
+        return "●"
+
+    @classmethod
+    def _negctrl_modifier_symbol(cls) -> str:
+        return "◯"
+
+    @classmethod
     def _duplicate_time_at_bottom(cls, lines: list) -> None:
         # Do not add a line after the circuit
         # It is safe to do because the last line is empty: _qubit_line_spacing["after"] = 1
         lines[-1] = lines[0]
+
+    @classmethod
+    def _transform_ascii_symbols(
+        cls, instructions: list[Instruction | ResultType]
+    ) -> list[Instruction | ResultType]:
+        items = instructions.copy()
+        for instruction in items:
+            if isinstance(instruction, ResultType) or not hasattr(
+                instruction.operator, "_ascii_symbols"
+            ):
+                continue
+            if instruction.operator.name == "Swap":
+                instruction.operator._ascii_symbols = ("x", "x")
+            ascii_symbols = []
+            for symb in instruction.operator._ascii_symbols:
+                if symb == "C":
+                    ascii_symbols.append(cls._ctrl_modifier_symbol())
+                elif symb == "N":
+                    ascii_symbols.append(cls._negctrl_modifier_symbol())
+                else:
+                    ascii_symbols.append(symb)
+            instruction.operator._ascii_symbols = ascii_symbols
+
+        return items
 
     @classmethod
     def _create_diagram_column(
@@ -117,7 +149,8 @@ class UnicodeCircuitDiagram(TextCircuitDiagram):
                             # when a user has a gate genuinely named C, but
                             # is necessary to enable proper printing of custom
                             # gates with built-in control qubits
-                            and ascii_symbols[item_qubit_index] != "C"
+                            and ascii_symbols[item_qubit_index]
+                            not in (cls._ctrl_modifier_symbol(), cls._negctrl_modifier_symbol())
                         )
                         else ""
                     )
@@ -128,7 +161,11 @@ class UnicodeCircuitDiagram(TextCircuitDiagram):
                     )
 
                 elif qubit in control_qubits:
-                    symbols[qubit] = "C" if map_control_qubit_states[qubit] else "N"
+                    symbols[qubit] = (
+                        cls._ctrl_modifier_symbol()
+                        if map_control_qubit_states[qubit]
+                        else cls._negctrl_modifier_symbol()
+                    )
                 else:
                     symbols[qubit] = "┼"
 
@@ -213,20 +250,19 @@ class UnicodeCircuitDiagram(TextCircuitDiagram):
         """
         top = ""
         bottom = ""
-        if symbol in ["C", "N", "SWAP"]:
+        if symbol in [cls._ctrl_modifier_symbol(), cls._negctrl_modifier_symbol()]:
             if connection in ["above", "both"]:
                 top = _fill_symbol(cls._vertical_delimiter(), " ")
             if connection in ["below", "both"]:
                 bottom = _fill_symbol(cls._vertical_delimiter(), " ")
-            new_symbol = {"C": "●", "N": "◯", "SWAP": "x"}
-            # replace SWAP by x
-            # the size of the moment remains as if there was a box with 4 characters inside
-            symbol = _fill_symbol(new_symbol[symbol], cls._qubit_line_character())
+            symbol = _fill_symbol(symbol, cls._qubit_line_character())
         elif symbol in ["StartVerbatim", "EndVerbatim"]:
             top, symbol, bottom = cls._build_verbatim_box(symbol, connection)
         elif symbol == "┼":
             top = bottom = _fill_symbol(cls._vertical_delimiter(), " ")
             symbol = _fill_symbol(f"{symbol}", cls._qubit_line_character())
+        elif symbol == "x":
+            top, symbol, bottom = cls._build_swap(connection)
         elif symbol == cls._qubit_line_character():
             # We do not box when no gate is applied.
             pass
@@ -250,6 +286,16 @@ class UnicodeCircuitDiagram(TextCircuitDiagram):
 
         symbol = f"┤ {symbol} ├"
         return top, symbol, bottom
+
+    @classmethod
+    def _build_swap(cls, connection: Literal["above", "below", "both", "none"]):
+        top = ""
+        bottom = ""
+        if connection in ["above", "both"]:
+            top = _fill_symbol(cls._vertical_delimiter(), " ")
+        if connection in ["below", "both"]:
+            bottom = _fill_symbol(cls._vertical_delimiter(), " ")
+        return top, "x", bottom
 
     @classmethod
     def _build_verbatim_box(

@@ -193,17 +193,17 @@ def test_different_size_boxes():
 def test_swap():
     circ = Circuit().swap(0, 2).x(1)
     expected = (
-        "T  : │      0       │",
-        "                     ",
-        "q0 : ────x───────────",
-        "         │           ",
-        "         │     ┌───┐ ",
-        "q1 : ────┼─────┤ X ├─",
-        "         │     └───┘ ",
-        "         │           ",
-        "q2 : ────x───────────",
-        "                     ",
-        "T  : │      0       │",
+        "T  : │     0     │",
+        "                  ",
+        "q0 : ───x─────────",
+        "        │         ",
+        "        │   ┌───┐ ",
+        "q1 : ───┼───┤ X ├─",
+        "        │   └───┘ ",
+        "        │         ",
+        "q2 : ───x─────────",
+        "                  ",
+        "T  : │     0     │",
     )
     _assert_correct_diagram(circ, expected)
 
@@ -968,6 +968,10 @@ def test_power():
         def __init__(self):
             super().__init__(qubit_count=2, ascii_symbols=["C", "FOO"])
 
+    class NFoo(Gate):
+        def __init__(self):
+            super().__init__(qubit_count=2, ascii_symbols=["N", "FOO"])
+
     class FooFoo(Gate):
         def __init__(self):
             super().__init__(qubit_count=2, ascii_symbols=["FOO", "FOO"])
@@ -976,22 +980,23 @@ def test_power():
     circ.add_instruction(Instruction(Foo(), 0, power=-1))
     circ.add_instruction(Instruction(CFoo(), (0, 1), power=2))
     circ.add_instruction(Instruction(CFoo(), (1, 2), control=0, power=3))
-    circ.add_instruction(Instruction(FooFoo(), (1, 3), control=[0, 2], power=4))
+    circ.add_instruction(Instruction(NFoo(), (1, 2), control=0, control_state="0", power=4))
+    circ.add_instruction(Instruction(FooFoo(), (1, 3), control=[0, 2], power=5))
     expected = (
-        "T  : │     0     │    1     │    2    │    3    │    4    │",
-        "         ┌───┐    ┌────────┐                               ",
-        "q0 : ────┤ H ├────┤ FOO^-1 ├─────●─────────●─────────●─────",
-        "         └───┘    └────────┘     │         │         │     ",
-        "        ┌─────┐              ┌───┴───┐     │     ┌───┴───┐ ",
-        "q1 : ───┤ H^0 ├──────────────┤ FOO^2 ├─────●─────┤ FOO^4 ├─",
-        "        └─────┘              └───────┘     │     └───┬───┘ ",
-        "      ┌─────────┐                      ┌───┴───┐     │     ",
-        "q2 : ─┤ H^-3.14 ├──────────────────────┤ FOO^3 ├─────●─────",
-        "      └─────────┘                      └───────┘     │     ",
-        "                                                 ┌───┴───┐ ",
-        "q3 : ────────────────────────────────────────────┤ FOO^4 ├─",
-        "                                                 └───────┘ ",
-        "T  : │     0     │    1     │    2    │    3    │    4    │",
+        "T  : │     0     │    1     │    2    │    3    │    4    │    5    │",
+        "         ┌───┐    ┌────────┐                                         ",
+        "q0 : ────┤ H ├────┤ FOO^-1 ├─────●─────────●─────────◯─────────●─────",
+        "         └───┘    └────────┘     │         │         │         │     ",
+        "        ┌─────┐              ┌───┴───┐     │         │     ┌───┴───┐ ",
+        "q1 : ───┤ H^0 ├──────────────┤ FOO^2 ├─────●─────────◯─────┤ FOO^5 ├─",
+        "        └─────┘              └───────┘     │         │     └───┬───┘ ",
+        "      ┌─────────┐                      ┌───┴───┐ ┌───┴───┐     │     ",
+        "q2 : ─┤ H^-3.14 ├──────────────────────┤ FOO^3 ├─┤ FOO^4 ├─────●─────",
+        "      └─────────┘                      └───────┘ └───────┘     │     ",
+        "                                                           ┌───┴───┐ ",
+        "q3 : ──────────────────────────────────────────────────────┤ FOO^5 ├─",
+        "                                                           └───────┘ ",
+        "T  : │     0     │    1     │    2    │    3    │    4    │    5    │",
     )
     _assert_correct_diagram(circ, expected)
 

@@ -66,9 +66,23 @@ class AsciiCircuitDiagram(TextCircuitDiagram):
         return 0
 
     @classmethod
+    def _ctrl_modifier_symbol(cls) -> str:
+        return "C"
+
+    @classmethod
+    def _negctrl_modifier_symbol(cls) -> str:
+        return "N"
+
+    @classmethod
     def _duplicate_time_at_bottom(cls, lines: str) -> None:
         # duplicate times after an empty line
         lines.append(lines[0])
+
+    @classmethod
+    def _transform_ascii_symbols(
+        cls, instructions: list[Instruction | ResultType]
+    ) -> list[Instruction | ResultType]:
+        return instructions
 
     @classmethod
     def _create_diagram_column(
@@ -148,7 +162,8 @@ class AsciiCircuitDiagram(TextCircuitDiagram):
                             # when a user has a gate genuinely named C, but
                             # is necessary to enable proper printing of custom
                             # gates with built-in control qubits
-                            and ascii_symbols[item_qubit_index] != "C"
+                            and ascii_symbols[item_qubit_index]
+                            not in (cls._ctrl_modifier_symbol(), cls._negctrl_modifier_symbol())
                         )
                         else ""
                     )
@@ -158,9 +173,13 @@ class AsciiCircuitDiagram(TextCircuitDiagram):
                         else ascii_symbols[item_qubit_index]
                     )
                 elif qubit in control_qubits:
-                    symbols[qubit] = "C" if map_control_qubit_states[qubit] else "N"
+                    symbols[qubit] = (
+                        cls._ctrl_modifier_symbol()
+                        if map_control_qubit_states[qubit]
+                        else cls._negctrl_modifier_symbol()
+                    )
                 else:
-                    symbols[qubit] = "|"
+                    symbols[qubit] = cls._vertical_delimiter()
 
                 # Set the margin to be a connector if not on the first qubit
                 if target_and_control and qubit != min(target_and_control):
