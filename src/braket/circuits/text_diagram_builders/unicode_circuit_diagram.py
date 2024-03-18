@@ -21,7 +21,10 @@ from braket.circuits.compiler_directive import CompilerDirective
 from braket.circuits.gate import Gate
 from braket.circuits.instruction import Instruction
 from braket.circuits.result_type import ResultType
-from braket.circuits.text_diagram_builders.text_circuit_diagram import TextCircuitDiagram
+from braket.circuits.text_diagram_builders.text_circuit_diagram import (
+    GateSymbol,
+    TextCircuitDiagram,
+)
 from braket.registers.qubit import Qubit
 from braket.registers.qubit_set import QubitSet
 
@@ -81,30 +84,6 @@ class UnicodeCircuitDiagram(TextCircuitDiagram):
         lines[-1] = lines[0]
 
     @classmethod
-    def _transform_ascii_symbols(
-        cls, instructions: list[Instruction | ResultType]
-    ) -> list[Instruction | ResultType]:
-        items = instructions.copy()
-        for instruction in items:
-            if isinstance(instruction, ResultType) or not hasattr(
-                instruction.operator, "_ascii_symbols"
-            ):
-                continue
-            if instruction.operator.name == "Swap":
-                instruction.operator._ascii_symbols = ("x", "x")
-            ascii_symbols = []
-            for symb in instruction.operator._ascii_symbols:
-                if symb == "C":
-                    ascii_symbols.append(cls._ctrl_modifier_symbol())
-                elif symb == "N":
-                    ascii_symbols.append(cls._negctrl_modifier_symbol())
-                else:
-                    ascii_symbols.append(symb)
-            instruction.operator._ascii_symbols = ascii_symbols
-
-        return items
-
-    @classmethod
     def _create_diagram_column(
         cls,
         circuit_qubits: QubitSet,
@@ -121,7 +100,7 @@ class UnicodeCircuitDiagram(TextCircuitDiagram):
         Returns:
             str: a string diagram for the specified moment in time for a column.
         """
-        symbols = {qubit: cls._qubit_line_character() for qubit in circuit_qubits}
+        symbols = {qubit: NoUnicodeSymbol(qubit, connection="none") for qubit in circuit_qubits}
         connections = {qubit: "none" for qubit in circuit_qubits}
 
         for item in items:
@@ -130,46 +109,29 @@ class UnicodeCircuitDiagram(TextCircuitDiagram):
                 control_qubits,
                 qubits,
                 connections,
-                ascii_symbols,
+                item_symbols,
                 map_control_qubit_states,
             ) = cls._build_parameters(circuit_qubits, item, connections)
 
             for qubit in qubits:
-                # Determine if the qubit is part of the item or in the middle of a
-                # multi qubit item.
-                if qubit in target_qubits:
-                    item_qubit_index = [
-                        index for index, q in enumerate(target_qubits) if q == qubit
-                    ][0]
-                    power_string = (
-                        f"^{power}"
-                        if (
-                            (power := getattr(item, "power", 1)) != 1
-                            # this has the limitation of not printing the power
-                            # when a user has a gate genuinely named C, but
-                            # is necessary to enable proper printing of custom
-                            # gates with built-in control qubits
-                            and ascii_symbols[item_qubit_index]
-                            not in (cls._ctrl_modifier_symbol(), cls._negctrl_modifier_symbol())
-                        )
-                        else ""
-                    )
-                    symbols[qubit] = (
-                        f"{ascii_symbols[item_qubit_index]}{power_string}"
-                        if power_string
-                        else ascii_symbols[item_qubit_index]
-                    )
-
-                elif qubit in control_qubits:
-                    symbols[qubit] = (
-                        cls._ctrl_modifier_symbol()
-                        if map_control_qubit_states[qubit]
-                        else cls._negctrl_modifier_symbol()
-                    )
+                # # Determine if the qubit is part of the item or in the middle of a
+                # # multi qubit item.
+                if qubit in target_qubits or qubit in control_qubits:
+                    symbols[qubit] = item_symbols[qubit]
+                # if qubit in target_qubits:
+                #     symbols[qubit] = [symb for symb in item_symbols if qubit == symb.qubit][0]
+                # elif qubit in control_qubits:
+                #     symbols[qubit] = (
+                #         CtrlModifierUnicodeSymbol(qubit=qubit, connection=connections[qubit])
+                #         if map_control_qubit_states[qubit]
+                #         else NegCtrlModifierUnicodeSymbol(
+                #             qubit=qubit, connection=connections[qubit]
+                #         )
+                #     )
                 else:
-                    symbols[qubit] = "┼"
+                    symbols[qubit] = NoUnicodeSymbol(qubit=qubit, connection="both")
 
-        output = cls._create_output(symbols, connections, circuit_qubits, global_phase)
+        output = cls._create_output(symbols, global_phase)
         return output
 
     @classmethod
@@ -178,14 +140,16 @@ class UnicodeCircuitDiagram(TextCircuitDiagram):
     ) -> tuple:
         map_control_qubit_states = {}
 
-        if (isinstance(item, ResultType) and not item.target) or (
-            isinstance(item, Instruction) and isinstance(item.operator, CompilerDirective)
-        ):
+        if isinstance(item, ResultType) and not item.target:
             target_qubits = circuit_qubits
             control_qubits = QubitSet()
             qubits = circuit_qubits
-            ascii_symbols = [item.ascii_symbols[0]] * len(qubits)
-            cls._update_connections(qubits, connections)
+            symbols = GateSymbolContainer(item.operator, qubits, None)
+        elif isinstance(item, Instruction) and isinstance(item.operator, CompilerDirective):
+            target_qubits = circuit_qubits
+            control_qubits = QubitSet()
+            qubits = circuit_qubits
+            symbols = [CompilerDirectiveUnicodeSymbol(item.operator) for _ in qubits]
         elif (
             isinstance(item, Instruction)
             and isinstance(item.operator, Gate)
@@ -194,7 +158,8 @@ class UnicodeCircuitDiagram(TextCircuitDiagram):
             target_qubits = circuit_qubits
             control_qubits = QubitSet()
             qubits = circuit_qubits
-            ascii_symbols = cls._qubit_line_character() * len(circuit_qubits)
+            cls._update_connections(qubits, connections)
+            symbols = [NoUnicodeSymbol(qubit, "none") for qubit in qubits]
         else:
             if isinstance(item.target, list):
                 target_qubits = reduce(QubitSet.union, map(QubitSet, item.target), QubitSet())
@@ -208,18 +173,21 @@ class UnicodeCircuitDiagram(TextCircuitDiagram):
 
             target_and_control = target_qubits.union(control_qubits)
             qubits = QubitSet(range(min(target_and_control), max(target_and_control) + 1))
-            ascii_symbols = item.ascii_symbols
+            power = getattr(item, "power", 1)
             cls._update_connections(qubits, connections)
+            symbols = GateSymbolContainer(item.operator, target_qubits, power)
+            symbols._add_ctrl_modifiers(map_control_qubit_states)
 
         return (
             target_qubits,
             control_qubits,
             qubits,
             connections,
-            ascii_symbols,
+            symbols,
             map_control_qubit_states,
         )
 
+    # Need to remove
     @staticmethod
     def _update_connections(qubits: QubitSet, connections: dict[Qubit, str]) -> None:
         if len(qubits) > 1:
@@ -227,14 +195,18 @@ class UnicodeCircuitDiagram(TextCircuitDiagram):
             connections[qubits[-1]] = "above"
             connections[qubits[0]] = "below"
 
-    # Ignore flake8 issue caused by Literal["above", "below", "both", "none"]
-    # flake8: noqa: BCS005
+    @classmethod
+    def _connections_list(cls, qubit_count: int):
+        if qubit_count < 2:
+            return ["none"]
+        else:
+            return ["below"] + ["both"] * (qubit_count - 2) + ["above"]
+
     @classmethod
     def _draw_symbol(
         cls,
-        symbol: str,
+        symbol: GateSymbol,
         symbols_width: int,
-        connection: Literal["above", "below", "both", "none"],
     ) -> str:
         """Create a string representing the symbol inside a box.
 
@@ -248,29 +220,33 @@ class UnicodeCircuitDiagram(TextCircuitDiagram):
         Returns:
             str: a string representing the symbol.
         """
-        top = ""
-        bottom = ""
-        if symbol in [cls._ctrl_modifier_symbol(), cls._negctrl_modifier_symbol()]:
-            if connection in ["above", "both"]:
-                top = _fill_symbol(cls._vertical_delimiter(), " ")
-            if connection in ["below", "both"]:
-                bottom = _fill_symbol(cls._vertical_delimiter(), " ")
-            symbol = _fill_symbol(symbol, cls._qubit_line_character())
-        elif symbol in ["StartVerbatim", "EndVerbatim"]:
-            top, symbol, bottom = cls._build_verbatim_box(symbol, connection)
-        elif symbol == "┼":
-            top = bottom = _fill_symbol(cls._vertical_delimiter(), " ")
-            symbol = _fill_symbol(f"{symbol}", cls._qubit_line_character())
-        elif symbol == "x":
-            top, symbol, bottom = cls._build_swap(connection)
-        elif symbol == cls._qubit_line_character():
-            # We do not box when no gate is applied.
-            pass
+        top = (
+            _fill_symbol(cls._vertical_delimiter(), " ")
+            if symbol.connection in ["above", "both"]
+            else ""
+        )
+        bottom = (
+            _fill_symbol(cls._vertical_delimiter(), " ")
+            if symbol.connection in ["below", "both"]
+            else ""
+        )
+        if isinstance(
+            symbol,
+            (
+                CtrlModifierUnicodeSymbol,
+                NegCtrlModifierUnicodeSymbol,
+                SwapUnicodeSymbol,
+                NoUnicodeSymbol,
+            ),
+        ):
+            name = _fill_symbol(symbol.name, cls._qubit_line_character())
+        elif isinstance(symbol, CompilerDirectiveUnicodeSymbol):
+            top, name, bottom = cls._build_verbatim_box(symbol.name, symbol.connection)
         else:
-            top, symbol, bottom = cls._build_box(symbol, connection)
+            top, name, bottom = cls._build_box(symbol, symbol.connection)
 
         output = f"{_fill_symbol(top, ' ', symbols_width)} \n"
-        output += f"{_fill_symbol(symbol, cls._qubit_line_character(), symbols_width)}{cls._qubit_line_character()}\n"
+        output += f"{_fill_symbol(name, cls._qubit_line_character(), symbols_width)}{cls._qubit_line_character()}\n"
         output += f"{_fill_symbol(bottom, ' ', symbols_width)} \n"
         return output
 
@@ -279,23 +255,13 @@ class UnicodeCircuitDiagram(TextCircuitDiagram):
         symbol: str, connection: Literal["above", "below", "both", "none"]
     ) -> tuple[str, str, str]:
         top_edge_symbol = "┴" if connection in ["above", "both"] else "─"
-        top = f"┌─{_fill_symbol(top_edge_symbol, '─', len(symbol))}─┐"
+        top = f"┌─{_fill_symbol(top_edge_symbol, '─', len(symbol.name))}─┐"
 
         bottom_edge_symbol = "┬" if connection in ["below", "both"] else "─"
-        bottom = f"└─{_fill_symbol(bottom_edge_symbol, '─', len(symbol))}─┘"
+        bottom = f"└─{_fill_symbol(bottom_edge_symbol, '─', len(symbol.name))}─┘"
 
-        symbol = f"┤ {symbol} ├"
+        symbol = f"┤ {symbol.name} ├"
         return top, symbol, bottom
-
-    @classmethod
-    def _build_swap(cls, connection: Literal["above", "below", "both", "none"]):
-        top = ""
-        bottom = ""
-        if connection in ["above", "both"]:
-            top = _fill_symbol(cls._vertical_delimiter(), " ")
-        if connection in ["below", "both"]:
-            bottom = _fill_symbol(cls._vertical_delimiter(), " ")
-        return top, "x", bottom
 
     @classmethod
     def _build_verbatim_box(
@@ -327,3 +293,123 @@ def _fill_symbol(symbol: str, filler: str, width: int | None = None) -> str:
         align="^",
         width=width if width is not None else len(symbol),
     )
+
+
+class GateSymbolContainer:
+    def __init__(self, type: Gate, qubits: QubitSet, power: float = 1) -> None:
+        self.container = {}
+        self.qubits = qubits
+        conns = self._connection_list()
+        for i, qubit, s, conn in zip(range(len(qubits)), qubits, type.ascii_symbols, conns):
+            if s == "C":
+                self.container[qubit] = CtrlModifierUnicodeSymbol(qubit, conn)
+            elif s == "N":
+                self.container[qubit] = NegCtrlModifierUnicodeSymbol(qubit, conn)
+            elif s == "SWAP":
+                self.container[qubit] = SwapUnicodeSymbol(qubit, conn)
+            else:
+                self.container[qubit] = GateUnicodeSymbol(type, qubit, conn, power, i)
+
+    def _add_ctrl_modifiers(self, map_control_qubit_states):
+        for qubit, state in map_control_qubit_states.items():
+            if qubit < min(self.qubits):
+                conn = "below"
+                self.container[min(self.qubits)].connection = "both" if self.container[min(self.qubits)].connection == "below" else "above"
+            elif qubit > max(self.qubits):
+                conn = "above"
+                self.container[max(self.qubits)].connection = "both" if self.container[max(self.qubits)].connection == "above" else "below"
+            else:
+                conn = "both"
+            if state == 1:
+                self.container[qubit] = CtrlModifierUnicodeSymbol(qubit, conn)
+            elif state == 0:
+                self.container[qubit] = NegCtrlModifierUnicodeSymbol(qubit, conn)
+
+    def _connection_list(self):
+        qubit_count = len(self.qubits)
+        if qubit_count < 2:
+            return ["none"]
+        else:
+            return ["below"] + ["both"] * (qubit_count - 2) + ["above"]
+
+    def __getitem__(self, index: Qubit):
+        return self.container[index]
+
+
+class GateUnicodeSymbol(GateSymbol):
+    def __init__(
+        self, type: Gate, qubit: Qubit, connection: str, power: float = 1, idx: int = 0
+    ) -> None:
+        super().__init__(type, qubit, connection, power)
+        self.idx = idx
+        # if self.type.ascii_symbols[self.idx] not in ["C", "N"]:
+        #     raise ValueError("Detected control modifier...")
+
+    @property
+    def name(self):
+        power_string = f"^{self.power}" if (self.power != 1) else ""
+        return self.type._ascii_symbols[self.idx] + power_string
+
+    @property
+    def pad(self) -> int:
+        return 4
+
+
+class ResultTypeUnicodeSymbol(GateUnicodeSymbol):
+    def __init__(self, type: ResultType, qubit: QubitSet) -> None:
+        super().__init__(type, qubit, "none")
+
+    @property
+    def name(self):
+        return self.type._ascii_symbols[self.qubit]
+
+
+class CompilerDirectiveUnicodeSymbol(GateUnicodeSymbol):
+    def __init__(self, directive: str) -> None:
+        super().__init__(None, None, "none")
+        self.directive = directive
+
+    @property
+    def name(self):
+        # return "StartVerbatim" if self.side else "EndVerbatim"
+        return self.directive
+
+
+class SwapUnicodeSymbol(GateUnicodeSymbol):
+    def __init__(self, qubit: Qubit, connection: str) -> None:
+        super().__init__(None, qubit, connection)
+
+    @property
+    def name(self):
+        return "x"
+
+    @property
+    def pad(self) -> int:
+        return 0
+
+
+class CtrlModifierUnicodeSymbol(GateUnicodeSymbol):
+    def __init__(self, qubit: Qubit, connection: str) -> None:
+        super().__init__(None, qubit, connection)
+
+    @property
+    def name(self):
+        return "●"
+
+
+class NegCtrlModifierUnicodeSymbol(GateUnicodeSymbol):
+    def __init__(self, qubit: Qubit, connection: str) -> None:
+        super().__init__(None, qubit, connection)
+
+    @property
+    def name(self):
+        return "◯"
+
+
+class NoUnicodeSymbol(GateUnicodeSymbol):
+    def __init__(self, qubit: Qubit, connection: str) -> None:
+        super().__init__(None, qubit, connection)
+
+    @property
+    def name(self):
+        return "┼" if self.connection == "both" else "─"

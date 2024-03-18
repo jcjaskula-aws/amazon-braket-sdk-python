@@ -5,6 +5,7 @@ from typing import Literal, Union
 
 import braket.circuits.circuit as cir
 from braket.circuits.circuit_diagram import CircuitDiagram
+from braket.circuits.gate import Gate
 from braket.circuits.instruction import Instruction
 from braket.circuits.moments import MomentType
 from braket.circuits.result_type import ResultType
@@ -209,9 +210,6 @@ class TextCircuitDiagram(CircuitDiagram, ABC):
         Returns:
             str: A string diagram for the column set.
         """
-
-        items = cls._transform_ascii_symbols(items)
-
         # Group items to separate out overlapping multi-qubit items
         groupings = _group_items(circuit_qubits, items)
 
@@ -243,9 +241,7 @@ class TextCircuitDiagram(CircuitDiagram, ABC):
     @classmethod
     def _create_output(
         cls,
-        symbols: dict[Qubit, str],
-        margins: dict[Qubit, str],
-        qubits: QubitSet,
+        symbols: list[GateSymbol],
         global_phase: float | None,
     ) -> str:
         """Creates the ouput for a single column:
@@ -254,7 +250,7 @@ class TextCircuitDiagram(CircuitDiagram, ABC):
             b. for each qubit, append the text representation produces by cls._draw_symbol
 
         Args:
-            symbols (dict[Qubit, str]): dictionary of the gate name for each qubit
+            symbols (list[GateSymbol]): list of symbols sorted by the qubit indices.
             margins (dict[Qubit, str]): map of the qubit interconnections. Specific to the
                 `_draw_symbol` classmethod.
             qubits (QubitSet): set of the circuit qubits
@@ -263,7 +259,7 @@ class TextCircuitDiagram(CircuitDiagram, ABC):
         Returns:
             str: a string representing a diagram column.
         """
-        symbols_width = max([len(symbol) for symbol in symbols.values()]) + cls._box_pad()
+        symbols_width = max([symbol.size for symbol in symbols.values()])
         output = ""
 
         if global_phase is not None:
@@ -279,6 +275,43 @@ class TextCircuitDiagram(CircuitDiagram, ABC):
                 vdelim=cls._vertical_delimiter(),
             )
 
-        for qubit in qubits:
-            output += cls._draw_symbol(symbols[qubit], symbols_width, margins[qubit])
+        for symbol in sorted(symbols.values(), key=lambda s: s.qubit):
+            output += cls._draw_symbol(symbol, symbols_width)
         return output
+
+
+class GateSymbol:
+    def __init__(self, type: Gate, qubit: Qubit, connection: str, power: int = 1) -> None:
+        self.type = type
+        self.qubit = qubit
+        self.connection = connection
+        self.power = power
+
+    @property
+    @abstractmethod
+    def pad(self):
+        """Pad"""
+
+    @property
+    def name(self):
+        return self.type._ascii_symbols[self.qubit]
+
+    @property
+    def size(self) -> int:
+        return len(self.name) + self.pad
+
+
+class SwapSymbol(GateSymbol):
+    pass
+
+
+class CtrlModifierSymbol(GateSymbol):
+    pass
+
+
+class VerbatimSymbol(GateSymbol):
+    pass
+
+
+class NoSymbol(GateSymbol):
+    pass
