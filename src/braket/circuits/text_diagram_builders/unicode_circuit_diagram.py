@@ -118,16 +118,6 @@ class UnicodeCircuitDiagram(TextCircuitDiagram):
                 # # multi qubit item.
                 if qubit in target_qubits or qubit in control_qubits:
                     symbols[qubit] = item_symbols[qubit]
-                # if qubit in target_qubits:
-                #     symbols[qubit] = [symb for symb in item_symbols if qubit == symb.qubit][0]
-                # elif qubit in control_qubits:
-                #     symbols[qubit] = (
-                #         CtrlModifierUnicodeSymbol(qubit=qubit, connection=connections[qubit])
-                #         if map_control_qubit_states[qubit]
-                #         else NegCtrlModifierUnicodeSymbol(
-                #             qubit=qubit, connection=connections[qubit]
-                #         )
-                #     )
                 else:
                     symbols[qubit] = NoUnicodeSymbol(qubit=qubit, connection="both")
 
@@ -314,10 +304,14 @@ class GateSymbolContainer:
         for qubit, state in map_control_qubit_states.items():
             if qubit < min(self.qubits):
                 conn = "below"
-                self.container[min(self.qubits)].connection = "both" if self.container[min(self.qubits)].connection == "below" else "above"
+                self.container[min(self.qubits)].connection = (
+                    "both" if self.container[min(self.qubits)].connection == "below" else "above"
+                )
             elif qubit > max(self.qubits):
                 conn = "above"
-                self.container[max(self.qubits)].connection = "both" if self.container[max(self.qubits)].connection == "above" else "below"
+                self.container[max(self.qubits)].connection = (
+                    "both" if self.container[max(self.qubits)].connection == "above" else "below"
+                )
             else:
                 conn = "both"
             if state == 1:
