@@ -1,3 +1,4 @@
+import argparse
 import io
 import os
 import re
@@ -49,8 +50,8 @@ def concatenate_files(zip_file, files):
     return content
 
 
-def format_and_write(content):
-    with open("cheat_sheet_summary.md", "w") as f:
+def format_and_write(content, destination):
+    with open(os.path.join(destination, "cheat_sheet_summary.md"), "w") as f:
         f.write("# Braket CheatSheet\n\n")
         for filename, file_content in content.items():
             f.write(f"**{filename[:-3]}**\n\n")
@@ -73,7 +74,15 @@ def format_and_write(content):
 
 
 if __name__ == "__main__":
-    zip_file = download_zip_file()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-d", "--destination", type=str)
+    parser.add_argument("-v", "--version", type=str)
+
+    args = parser.parse_args()
+    version = args.version if args.version else None
+    destination = args.destination if args.destination else "."
+
+    zip_file = download_zip_file(version)
     markdown_file_names = list_markdown_files(zip_file)
     content = concatenate_files(zip_file, markdown_file_names)
-    format_and_write(content)
+    format_and_write(content, destination)
